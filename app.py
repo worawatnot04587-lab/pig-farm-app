@@ -4,115 +4,110 @@ import pandas as pd
 from datetime import datetime, timedelta
 import plotly.express as px
 
-st.set_page_config(page_title="ระบบฟาร์มหมู", layout="wide")
+st.set_page_config(page_title="ระบบฟาร์มหมู V.เสถียร", layout="wide")
 
+# เชื่อมต่อกับ Google Sheets
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- ฟังก์ชันดึงข้อมูลแบบระบุคอลัมน์ป้องกัน Error ---
-def get_data(sheet_name, cols):
+# --- ฟังก์ชันดึงข้อมูลแบบปลอดภัย ---
+def get_safe_data(worksheet_name, expected_cols):
     try:
-        # อ่านข้อมูลโดยไม่สนชื่อหัวข้อ (ใช้แถวแรกเป็นข้อมูลไปเลยถ้าไม่มีหัว)
-        df = conn.read(worksheet=sheet_name)
-        if df.empty:
-            return pd.DataFrame(columns=cols)
+        df = conn.read(worksheet=worksheet_name, ttl="0")
+        if df.empty or len(df.columns) < len(expected_cols):
+            return pd.DataFrame(columns=expected_cols)
         return df
     except:
-        return pd.DataFrame(columns=cols)
+        return pd.DataFrame(columns=expected_cols)
 
-st.title("🐷 ระบบจัดการฟาร์มหมู (V.เสถียรที่สุด)")
-menu = ["🏠 หน้าหลัก & กราฟ", "🍼 บันทึกแม่พันธุ์", "📦 บันทึกหมูขุน", "🧪 ขายน้ำเชื้อ", "🗑️ ลบข้อมูล"]
+st.title("🐷 ระบบจัดการฟาร์มหมู (Fixed Version)")
+menu = ["🏠 หน้าหลัก", "🍼 แม่พันธุ์", "📦 หมูขุน", "🧪 น้ำเชื้อ", "🗑️ ลบข้อมูล"]
 choice = st.sidebar.radio("เมนู", menu)
 
 # --- 1. หน้าหลัก ---
-if choice == "🏠 หน้าหลัก & กราฟ":
+if choice == "🏠 หน้าหลัก":
     st.subheader("📊 สถิติภาพรวม")
-    df_sows = get_data("Sows", ["เลขแม่พันธุ์", "สายพันธุ์", "พ่อพันธุ์", "แม่พันธุ์", "วันที่ผสม", "กำหนดคลอด"])
-    df_fat = get_data("Fattening", ["เลขเล้า", "สถานะ", "จำนวน", "วันที่", "น้ำหนัก", "รายได้รวม"])
-    df_semen = get_data("Semen_Sales", ["วันที่", "ชื่อลูกค้า", "สายพันธุ์", "โดส", "ราคา", "วันตามงาน"])
+    df_sows = get_safe_data("Sows", ["เลขแม่พันธุ์", "สายพันธุ์", "พ่อที่มา", "แม่ที่มา", "วันที่ผสม", "กำหนดคลอด"])
+    df_fat = get_safe_data("Fattening", ["เลขเล้า", "สถานะ", "จำนวน", "วันที่", "น้ำหนัก", "รายได้"])
+    df_semen = get_safe_data("Semen_Sales", ["วันที่", "ลูกค้า", "สายพันธุ์", "โดส", "ราคา", "วันตามงาน"])
 
-    c1, c2, c3 = st.columns(3)
-    c1.metric("แม่พันธุ์", f"{len(df_sows)} ตัว")
-    c2.metric("รายได้หมูขุน", f"{df_fat['รายได้รวม'].sum() if not df_fat.empty else 0:,.0f} ฿")
-    c3.metric("รายได้น้ำเชื้อ", f"{df_semen['ราคา'].sum() if not df_semen.empty else 0:,.0f} ฿")
-    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("แม่พันธุ์ทั้งหมด", f"{len(df_sows['เลขแม่พันธุ์'].unique()) if not df_sows.empty else 0} ตัว")
+    col2.metric("รายได้หมูขุน", f"{df_fat['รายได้'].sum() if not df_fat.empty else 0:,.0f} ฿")
+    col3.metric("รายได้น้ำเชื้อ", f"{df_semen['ราคา'].sum() if not df_semen.empty else 0:,.0f} ฿")
+
     if not df_fat.empty:
-        fig = px.bar(df_fat, x="เลขเล้า", y="จำนวน", title="จำนวนหมูในแต่ละเล้า", color="สถานะ")
+        fig = px.bar(df_fat, x="เลขเล้า", y="จำนวน", color="สถานะ", title="จำนวนหมูในแต่ละเล้า")
         st.plotly_chart(fig, use_container_width=True)
 
 # --- 2. บันทึกแม่พันธุ์ ---
-elif choice == "🍼 บันทึกแม่พันธุ์":
+elif choice == "🍼 แม่พันธุ์":
     st.header("🍼 บันทึกแม่พันธุ์")
-    df = get_data("Sows", ["เลขแม่พันธุ์", "สายพันธุ์", "พ่อพันธุ์", "แม่พันธุ์", "วันที่ผสม", "กำหนดคลอด"])
+    df = get_safe_data("Sows", ["เลขแม่พันธุ์", "สายพันธุ์", "พ่อที่มา", "แม่ที่มา", "วันที่ผสม", "กำหนดคลอด"])
     
-    mode = st.radio("เลือกโหมด:", ["แม่เดิม", "จดใหม่"], horizontal=True)
     with st.form("sow_form", clear_on_submit=True):
-        if mode == "แม่เดิม" and not df.empty:
-            sow_id = st.selectbox("เลือกเลขแม่พันธุ์", df["เลขแม่พันธุ์"].unique())
-            breed = df[df["เลขแม่พันธุ์"] == sow_id]["สายพันธุ์"].values[0]
-            f_o, m_o = "", ""
-        else:
-            sow_id = st.text_input("เลขแม่พันธุ์ใหม่")
-            breed = st.text_input("สายพันธุ์")
-            f_o = st.text_input("พ่อพันธุ์(ที่มา)")
-            m_o = st.text_input("แม่พันธุ์(ที่มา)")
-        
+        s_id = st.text_input("เลขแม่พันธุ์")
+        breed = st.text_input("สายพันธุ์")
+        f_o = st.text_input("สายพันธุ์พ่อ (ที่มา)")
+        m_o = st.text_input("สายพันธุ์แม่ (ที่มา)")
         d_mix = st.date_input("วันที่ผสม", datetime.now())
         d_due = d_mix + timedelta(days=114)
-
+        
         if st.form_submit_button("บันทึก"):
-            new_data = pd.DataFrame([[sow_id, breed, f_o, m_o, str(d_mix), str(d_due)]], columns=df.columns)
-            updated_df = pd.concat([df, new_data], ignore_index=True)
-            conn.update(worksheet="Sows", data=updated_df)
-            st.success("บันทึกลงช่องคอลัมน์เรียบร้อย!")
+            new_row = pd.DataFrame([[s_id, breed, f_o, m_o, str(d_mix), str(d_due)]], columns=df.columns)
+            updated = pd.concat([df, new_row], ignore_index=True)
+            conn.update(worksheet="Sows", data=updated)
+            st.success("บันทึกสำเร็จ!")
 
 # --- 3. บันทึกหมูขุน ---
-elif choice == "📦 บันทึกหมูขุน":
+elif choice == "📦 หมูขุน":
     st.header("📦 บันทึกหมูขุน")
-    df = get_data("Fattening", ["เลขเล้า", "สถานะ", "จำนวน", "วันที่", "น้ำหนัก", "รายได้รวม"])
+    df = get_safe_data("Fattening", ["เลขเล้า", "สถานะ", "จำนวน", "วันที่", "น้ำหนัก", "รายได้"])
     
     with st.form("fat_form", clear_on_submit=True):
         p_id = st.text_input("เลขเล้า")
-        stat = st.selectbox("สถานะ", ["กำลังเลี้ยง", "ขายแล้ว"])
-        amt = st.number_input("จำนวน(ตัว)", min_value=0)
-        wet = st.number_input("น้ำหนักรวม(กก.)", min_value=0.0)
-        pri = st.number_input("รายได้รวม(บาท)", min_value=0.0)
+        status = st.selectbox("สถานะ", ["กำลังเลี้ยง", "ขายแล้ว"])
+        amt = st.number_input("จำนวน (ตัว)", min_value=0)
+        wet = st.number_input("น้ำหนักรวม (กก.)", min_value=0.0)
+        pri = st.number_input("รายได้รวม (บาท)", min_value=0.0)
         dt = st.date_input("วันที่ทำรายการ")
         
         if st.form_submit_button("บันทึก"):
-            new_data = pd.DataFrame([[p_id, stat, amt, str(dt), wet, pri]], columns=df.columns)
-            updated_df = pd.concat([df, new_data], ignore_index=True)
-            conn.update(worksheet="Fattening", data=updated_df)
+            new_row = pd.DataFrame([[p_id, status, amt, str(dt), wet, pri]], columns=df.columns)
+            updated = pd.concat([df, new_row], ignore_index=True)
+            conn.update(worksheet="Fattening", data=updated)
             st.success("บันทึกสำเร็จ!")
 
 # --- 4. ขายน้ำเชื้อ ---
-elif choice == "🧪 ขายน้ำเชื้อ":
+elif choice == "🧪 น้ำเชื้อ":
     st.header("🧪 ขายน้ำเชื้อ")
-    df = get_data("Semen_Sales", ["วันที่", "ชื่อลูกค้า", "สายพันธุ์", "โดส", "ราคา", "วันตามงาน"])
+    df = get_safe_data("Semen_Sales", ["วันที่", "ลูกค้า", "สายพันธุ์", "โดส", "ราคา", "วันตามงาน"])
     
     with st.form("semen_form", clear_on_submit=True):
         c_name = st.text_input("ชื่อลูกค้า")
-        s_breed = st.text_input("สายพันธุ์น้ำเชื้อ")
+        breed = st.text_input("สายพันธุ์")
         dose = st.number_input("จำนวนโดส", min_value=1)
-        total = st.number_input("ราคารวม", min_value=0)
-        d_sale = st.date_input("วันที่ขาย")
-        d_foll = d_sale + timedelta(days=21)
+        price = st.number_input("ราคารวม (บาท)", min_value=0)
+        dt_sale = st.date_input("วันที่ขาย")
+        dt_foll = dt_sale + timedelta(days=21)
         
         if st.form_submit_button("บันทึก"):
-            new_data = pd.DataFrame([[str(d_sale), c_name, s_breed, dose, total, str(d_foll)]], columns=df.columns)
-            updated_df = pd.concat([df, new_data], ignore_index=True)
-            conn.update(worksheet="Semen_Sales", data=updated_df)
+            new_row = pd.DataFrame([[str(dt_sale), c_name, breed, dose, price, str(dt_foll)]], columns=df.columns)
+            updated = pd.concat([df, new_row], ignore_index=True)
+            conn.update(worksheet="Semen_Sales", data=updated)
             st.success("บันทึกสำเร็จ!")
 
 # --- 5. ลบข้อมูล ---
 elif choice == "🗑️ ลบข้อมูล":
-    st.header("🗑️ ลบข้อมูล")
-    sheet_to_del = st.selectbox("เลือกหมวดที่ต้องการลบ", ["Sows", "Fattening", "Semen_Sales"])
-    df = conn.read(worksheet=sheet_to_del)
-    if not df.empty:
-        idx = st.number_input("ใส่ลำดับที่ต้องการลบ (Index)", min_value=0, max_value=len(df)-1)
-        if st.button("ยืนยันการลบ"):
-            df = df.drop(df.index[idx])
-            conn.update(worksheet=sheet_to_del, data=df)
-            st.success("ลบข้อมูลแล้ว")
-            st.rerun()
+    st.header("🗑️ จัดการข้อมูล")
+    target = st.selectbox("เลือกหมวดที่ต้องการจัดการ", ["Sows", "Fattening", "Semen_Sales"])
+    df = conn.read(worksheet=target, ttl="0")
+    st.write(f"ข้อมูลปัจจุบันใน {target}:")
     st.dataframe(df)
+    
+    if not df.empty:
+        idx = st.number_input("ใส่เลขลำดับที่ต้องการลบ (0 คือแถวแรก)", min_value=0, max_value=len(df)-1)
+        if st.button("ลบแถวนี้"):
+            new_df = df.drop(df.index[idx])
+            conn.update(worksheet=target, data=new_df)
+            st.success("ลบข้อมูลแล้ว!")
+            st.rerun()
